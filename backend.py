@@ -354,9 +354,15 @@ async def root():
         "endpoints": {
             "health": "/health",
             "upload": "/upload",
-            "analyze": "/analyze"
+            "analyze": "/analyze",
+            "debug": "/debug"
         }
     }
+
+@app.get("/test")
+async def test_endpoint():
+    """Simple test endpoint"""
+    return {"message": "Backend is working!", "timestamp": datetime.now().isoformat()}
 
 @app.get("/health")
 async def health_check():
@@ -391,11 +397,23 @@ async def debug_info():
     }
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+@app.options("/upload")
+async def upload_file(request: Request, file: UploadFile = File(None)):
     """Upload and store file for analysis"""
+    
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        return JSONResponse(
+            content={},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
     try:
-        # Validate file type
-        if not file.filename:
+        # Validate file
+        if not file or not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
         
         file_ext = Path(file.filename).suffix.lower().lstrip('.')
@@ -435,11 +453,23 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/analyze")
-async def analyze_file(file: UploadFile = File(...)):
+@app.options("/analyze")
+async def analyze_file(request: Request, file: UploadFile = File(None)):
     """Analyze uploaded file with AI"""
+    
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        return JSONResponse(
+            content={},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
     try:
         # Validate file
-        if not file.filename:
+        if not file or not file.filename:
             raise HTTPException(status_code=400, detail="No file provided")
         
         file_ext = Path(file.filename).suffix.lower().lstrip('.')
