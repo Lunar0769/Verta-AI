@@ -1,0 +1,2 @@
+# VERTA Vercel Deployment Requirements - Minimal
+# No external dependencies needed for basic functionality
