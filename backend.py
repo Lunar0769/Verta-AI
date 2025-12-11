@@ -64,11 +64,11 @@ def configure_gemini():
     
     # Try different model names (updated for current API)
     model_names = [
+        'models/gemini-1.5-flash',
+        'models/gemini-1.5-pro',
+        'models/gemini-pro',
         'gemini-1.5-flash-latest',
-        'gemini-1.5-pro-latest', 
-        'gemini-pro',
-        'gemini-1.5-flash',
-        'gemini-1.5-pro'
+        'gemini-pro'
     ]
     
     for model_name in model_names:
