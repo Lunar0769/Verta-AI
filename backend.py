@@ -565,8 +565,9 @@ async def analyze_file(request: Request, file: UploadFile = File(None)):
         # Fallback to sample analysis
         logger.info("Using sample analysis (AI not available)")
         sample_result = create_sample_analysis(file.filename)
-        sample_result["analysis_type"] = "⚠️ Sample Analysis (AI Unavailable)"
-        sample_result["note"] = "This is sample data. Real AI analysis failed."
+        sample_result["analysis_type"] = "⚠️ DEMO MODE - Sample Analysis"
+        sample_result["note"] = "This is demonstration data. To enable real AI analysis, ensure your Gemini API key is valid and has quota remaining."
+        sample_result["instructions"] = "Visit https://makersuite.google.com/app/apikey to check your API key status."
         return sample_result
         
     except HTTPException:
