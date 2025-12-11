@@ -252,11 +252,10 @@ def upload_file():
 
 @app.route('/analyze', methods=['POST', 'OPTIONS'])
 def analyze_file():
-    """Analyze uploaded file"""
+    """Analyze uploaded meeting file using Gemini"""
     
     # Handle CORS preflight
     if request.method == 'OPTIONS':
-        logger.info("CORS preflight request for /analyze")
         response = jsonify({})
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -264,43 +263,74 @@ def analyze_file():
         return response
     
     logger.info("Analysis request received")
-    
+
     try:
-        # Check if file is in request
+        # Check if file exists
         if 'file' not in request.files:
             logger.error("No file in request for analysis")
             return jsonify({"error": "No file provided"}), 400
-        
-        file = request.files['file']
-        
-        # Check if file is selected
-        if file.filename == '':
+
+        uploaded_file = request.files['file']
+
+        if uploaded_file.filename == '':
             logger.error("No file selected for analysis")
             return jsonify({"error": "No file selected"}), 400
-        
-        # Validate file
-        if not allowed_file(file.filename):
-            logger.error(f"Invalid file type for analysis: {file.filename}")
-            return jsonify({
-                "error": f"File type not supported. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-            }), 400
-        
-        logger.info(f"Starting analysis for file: {file.filename}")
-        
-        # Create comprehensive analysis result
-        result = create_sample_analysis(file.filename)
-        
-        logger.info("Analysis completed successfully")
-        logger.info(f"Returning analysis result: {json.dumps(result, indent=2)}")
-        
-        # Return JSON with proper headers
-        response = jsonify(result)
-        response.headers['Content-Type'] = 'application/json'
-        return response, 200
-        
+
+        if not allowed_file(uploaded_file.filename):
+            logger.error("Invalid file type for analysis")
+            return jsonify({"error": "Invalid file type"}), 400
+
+        # Save temp file
+        temp_path = os.path.join(UPLOAD_FOLDER, secure_filename(uploaded_file.filename))
+        uploaded_file.save(temp_path)
+
+        logger.info(f"File saved for analysis: {temp_path}")
+
+        # -------------------------
+        # TRUE GEMINI API PROCESSING
+        # -------------------------
+
+        import google.generativeai as genai
+
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        # Upload content
+        media = genai.upload_file(temp_path)
+        logger.info(f"File uploaded to Gemini: {media}")
+
+        prompt = """
+        You are an AI Meeting Analyzer for VERTA.
+        Extract:
+        - Speakers
+        - Transcript segments
+        - Sentiment
+        - Topic classification
+        - Engagement score
+        - Meeting summary
+        - Action items
+        - Improvement suggestions
+
+        Return output strictly as valid JSON.
+        """
+
+        ai_response = model.generate_content([prompt, media])
+
+        logger.info("Gemini analysis complete.")
+
+        # Parse JSON output
+        try:
+            result = json.loads(ai_response.text)
+        except:
+            result = {"raw_output": ai_response.text}
+
+        return jsonify(result), 200
+
     except Exception as e:
         logger.error(f"Analysis error: {str(e)}")
-        return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/debug')
 def debug():
