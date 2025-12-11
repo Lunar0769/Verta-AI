@@ -10,6 +10,7 @@ import tempfile
 import uuid
 import time
 import logging
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -367,8 +368,26 @@ async def health_check():
         "service": "VERTA AI Meeting Intelligence API",
         "version": "1.0.0",
         "ai_model": "available" if (model and api_key) else "unavailable",
+        "api_key_present": bool(api_key),
+        "api_key_length": len(api_key) if api_key else 0,
+        "model_initialized": bool(model),
         "timestamp": datetime.now().isoformat(),
         "environment": "production" if os.getenv("RENDER") else "development"
+    }
+
+@app.get("/debug")
+async def debug_info():
+    """Debug endpoint to check configuration"""
+    api_key = os.getenv("GEMINI_API_KEY")
+    
+    return {
+        "api_key_present": bool(api_key),
+        "api_key_length": len(api_key) if api_key else 0,
+        "api_key_prefix": api_key[:10] + "..." if api_key else None,
+        "model_initialized": bool(model),
+        "genai_available": bool(genai),
+        "environment_vars": list(os.environ.keys()),
+        "render_env": bool(os.getenv("RENDER"))
     }
 
 @app.post("/upload")
@@ -445,16 +464,24 @@ async def analyze_file(file: UploadFile = File(...)):
         # Try real AI analysis if model is available
         if model:
             try:
+                logger.info("Model is available, attempting real AI analysis...")
                 result = await analyze_with_gemini(model, file_content, file.filename)
                 if result:
                     logger.info("Real AI analysis completed successfully")
+                    result["analysis_type"] = "Real AI Analysis"
                     return result
+                else:
+                    logger.warning("AI analysis returned None, falling back to sample")
             except Exception as e:
                 logger.error(f"AI analysis failed: {e}")
+        else:
+            logger.warning("Model not available - no Gemini API key or initialization failed")
         
         # Fallback to sample analysis
         logger.info("Using sample analysis (AI not available)")
-        return create_sample_analysis(file.filename)
+        sample_result = create_sample_analysis(file.filename)
+        sample_result["analysis_type"] = "Sample Analysis (AI Unavailable)"
+        return sample_result
         
     except HTTPException:
         raise
