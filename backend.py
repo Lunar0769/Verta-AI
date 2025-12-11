@@ -64,11 +64,11 @@ def configure_gemini():
     
     # Try different model names (updated for current API)
     model_names = [
+        'models/gemini-2.5-flash',
+        'models/gemini-2.5-pro',
         'models/gemini-1.5-flash',
         'models/gemini-1.5-pro',
-        'models/gemini-pro',
-        'gemini-1.5-flash-latest',
-        'gemini-pro'
+        'models/gemini-pro'
     ]
     
     for model_name in model_names:
@@ -510,7 +510,8 @@ async def analyze_file(request: Request, file: UploadFile = File(None)):
                 result = await analyze_with_gemini(model, file_content, file.filename)
                 if result:
                     logger.info("Real AI analysis completed successfully")
-                    result["analysis_type"] = "Real AI Analysis"
+                    result["analysis_type"] = "🔮 Real Gemini AI Analysis"
+                    result["ai_model_used"] = "Gemini 2.5 Flash"
                     return result
                 else:
                     logger.warning("AI analysis returned None, falling back to sample")
@@ -522,7 +523,8 @@ async def analyze_file(request: Request, file: UploadFile = File(None)):
         # Fallback to sample analysis
         logger.info("Using sample analysis (AI not available)")
         sample_result = create_sample_analysis(file.filename)
-        sample_result["analysis_type"] = "Sample Analysis (AI Unavailable)"
+        sample_result["analysis_type"] = "⚠️ Sample Analysis (AI Unavailable)"
+        sample_result["note"] = "This is sample data. Real AI analysis failed."
         return sample_result
         
     except HTTPException:
