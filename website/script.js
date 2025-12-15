@@ -65,8 +65,106 @@ function scrollToDemo() {
     }
 }
 
-// VERTA Backend Configuration
-const BACKEND_URL = 'http://localhost:5000';
+// VERTA Backend Configuration - Using Render deployment
+const BACKEND_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000' 
+    : 'https://verta-ai-rk8i.onrender.com';
+
+// Backend Wake-up System for Render Auto-Sleep
+async function wakeUpBackend() {
+    console.log('🔄 Waking up VERTA backend server...');
+    updateBackendStatus('connecting', 'Waking up server...');
+    
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for cold starts
+        
+        const response = await fetch(`${BACKEND_URL}/health`, {
+            method: 'GET',
+            mode: 'cors',
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'VERTA-Frontend/1.0'
+            }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+            console.log('✅ Backend is awake and ready!');
+            updateBackendStatus('connected', 'Server ready');
+            return true;
+        } else {
+            console.log('⚠️ Backend responded but may not be fully ready');
+            updateBackendStatus('warning', 'Server starting...');
+            return false;
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('⏰ Backend wake-up timeout - server may still be starting');
+            updateBackendStatus('warning', 'Server starting (may take up to 2 min)');
+        } else {
+            console.log('❌ Backend wake-up failed:', error.message);
+            updateBackendStatus('error', 'Connection failed - will retry');
+        }
+        return false;
+    }
+}
+
+// Update backend status indicator
+function updateBackendStatus(status, message) {
+    const statusElement = document.getElementById('backend-status');
+    if (!statusElement) return;
+    
+    const dot = statusElement.querySelector('div');
+    const text = statusElement.querySelector('span');
+    
+    if (!dot || !text) return;
+    
+    // Remove all status classes
+    dot.className = 'w-2 h-2 rounded-full mr-2';
+    
+    switch (status) {
+        case 'connecting':
+            dot.classList.add('bg-yellow-500', 'animate-pulse');
+            break;
+        case 'connected':
+            dot.classList.add('bg-green-500');
+            break;
+        case 'warning':
+            dot.classList.add('bg-orange-500', 'animate-pulse');
+            break;
+        case 'error':
+            dot.classList.add('bg-red-500');
+            break;
+    }
+    
+    text.textContent = message;
+}
+
+// Auto wake-up backend when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 VERTA: Initializing Render backend wake-up system...');
+    
+    // Wake up backend immediately when user visits the site
+    setTimeout(() => {
+        wakeUpBackend();
+    }, 1000); // Small delay to let the page load
+    
+    // Also wake up when user interacts with upload area
+    const uploadZone = document.getElementById('upload-zone');
+    if (uploadZone) {
+        uploadZone.addEventListener('click', function() {
+            // Check if backend is ready, if not wake it up
+            const statusElement = document.getElementById('backend-status');
+            const statusText = statusElement?.querySelector('span')?.textContent;
+            
+            if (statusText && !statusText.includes('ready')) {
+                wakeUpBackend();
+            }
+        });
+    }
+});
 
 // File Upload Functionality
 document.addEventListener('DOMContentLoaded', function() {
@@ -170,29 +268,29 @@ document.addEventListener('DOMContentLoaded', function() {
             resultsSection.innerHTML = ''; // Clear previous results
             
             try {
-                // Step 1: Check backend health
+                // Step 1: Ensure backend is awake (especially important for Render)
                 updateProgress(5, 'Connecting to VERTA AI backend...');
-                console.log('🔍 Checking backend health...');
+                console.log('🔍 Ensuring backend is ready...');
                 
-                const healthUrl = `${BACKEND_URL}/health`;
-                console.log('Health check URL:', healthUrl);
+                // Try to wake up backend if it's sleeping
+                let backendReady = await wakeUpBackend();
                 
-                const healthResponse = await fetch(healthUrl, {
-                    method: 'GET',
-                    mode: 'cors'
-                });
-                
-                console.log('Health response status:', healthResponse.status);
-                console.log('Health response headers:', Object.fromEntries(healthResponse.headers.entries()));
-                
-                if (!healthResponse.ok) {
-                    throw new Error(`Backend health check failed: ${healthResponse.status}`);
+                // If first attempt failed, try again with longer timeout for Render cold starts
+                if (!backendReady) {
+                    updateProgress(10, 'Backend starting up, please wait...');
+                    console.log('🔄 Retrying backend connection for Render cold start...');
+                    
+                    // Wait a bit more for cold start
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    backendReady = await wakeUpBackend();
                 }
                 
-                const healthData = await healthResponse.json();
-                console.log('✅ Backend health data:', healthData);
-                
-                updateProgress(15, '✅ Connected to VERTA AI successfully');
+                if (!backendReady) {
+                    updateProgress(15, 'Backend may still be starting, attempting analysis...');
+                    console.log('⚠️ Proceeding with analysis despite backend status');
+                } else {
+                    updateProgress(15, '✅ Connected to VERTA AI successfully');
+                }
                 
                 // Step 2: Upload and analyze file
                 updateProgress(25, '📤 Uploading your meeting file...');
