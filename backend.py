@@ -558,6 +558,24 @@ def analyze_file():
                         if json_match:
                             response_text = json_match.group(0)
                     
+                    # Handle truncated JSON by trying to fix common issues
+                    if response_text.count('{') > response_text.count('}'):
+                        # Add missing closing braces
+                        missing_braces = response_text.count('{') - response_text.count('}')
+                        response_text += '}' * missing_braces
+                        logger.info(f"Fixed {missing_braces} missing closing braces")
+                    
+                    # Try to fix unterminated strings
+                    if response_text.count('"') % 2 != 0:
+                        # Find the last quote and see if we need to close it
+                        last_quote_pos = response_text.rfind('"')
+                        if last_quote_pos > 0:
+                            # Check if it's an unterminated string
+                            after_quote = response_text[last_quote_pos + 1:].strip()
+                            if not after_quote.startswith((':', ',', '}', ']')):
+                                response_text = response_text[:last_quote_pos + 1] + '"' + response_text[last_quote_pos + 1:]
+                                logger.info("Fixed unterminated string")
+                    
                     result = json.loads(response_text)
                     
                     # Validate and fix structure for longer videos
