@@ -347,9 +347,13 @@ def analyze_file():
                 if not model:
                     raise Exception("No available Gemini model found")
                 
-                # Upload content
-                media = genai.upload_file(temp_path)
-                logger.info(f"File uploaded to Gemini: {media}")
+                # Upload content with better error handling
+                try:
+                    media = genai.upload_file(temp_path)
+                    logger.info(f"File uploaded to Gemini: {media}")
+                except Exception as e:
+                    logger.error(f"File upload failed: {e}")
+                    raise Exception(f"Failed to upload file to Gemini: {e}")
                 
                 # Wait for file to become active with proper retry logic
                 logger.info("Waiting for file to become active...")
@@ -400,19 +404,16 @@ def analyze_file():
                     logger.error(f"Final status check failed: {e}")
                     raise Exception(f"Unable to verify file status: {e}")
                 
+                # Optimized prompt for longer videos to avoid API limits
                 prompt = """
-                You are VERTA AI Meeting Analyzer. Analyze this meeting recording (regardless of length - 2 minutes or 20 minutes) and return ONLY valid JSON with this EXACT structure:
+                Analyze this meeting recording and return valid JSON only. For longer videos, focus on key content and clear structure.
 
-                CRITICAL REQUIREMENTS FOR COMPLETE TRANSCRIPTION:
-                1. TRANSCRIBE EVERY SINGLE WORD spoken in the video - do not skip anything
-                2. Include ALL filler words (um, uh, like, you know, etc.)
-                3. Include ALL partial sentences, interruptions, and overlapping speech
-                4. Capture EVERY speaker change, no matter how brief
-                5. Include background comments, side conversations, and whispered remarks
-                6. Transcribe stammers, repetitions, and false starts exactly as spoken
-                7. Do not paraphrase, summarize, or clean up the speech - be 100% literal
-                8. Break into time-based segments (every 1-2 minutes) but include EVERYTHING
-                9. For longer videos, create MORE segments with MORE detail, not less
+                REQUIREMENTS:
+                1. Create 3-5 segments maximum (even for long videos)
+                2. Summarize main discussion points per segment
+                3. Identify speakers as Speaker A, B, C, etc.
+                4. Focus on actionable content and decisions
+                5. Keep transcript concise but informative
 
                 {
                   "file_info": {
@@ -497,15 +498,43 @@ def analyze_file():
                 Return ONLY the JSON object with COMPLETE transcripts, no markdown, no explanations, no code blocks.
                 """
                 
-                ai_response = model.generate_content([prompt, media])
-                logger.info("Gemini analysis complete.")
+                # Generate content with retry logic for longer videos
+                max_retries = 3
+                retry_delay = 10  # seconds
+                
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"Gemini analysis attempt {attempt + 1}/{max_retries}")
+                        
+                        # Use shorter timeout for longer videos to avoid 500 errors
+                        ai_response = model.generate_content(
+                            [prompt, media],
+                            generation_config=genai.types.GenerationConfig(
+                                max_output_tokens=4000,  # Limit output for stability
+                                temperature=0.1,  # Lower temperature for more consistent output
+                            )
+                        )
+                        
+                        logger.info("✅ Gemini analysis complete!")
+                        break
+                        
+                    except Exception as e:
+                        logger.warning(f"Gemini attempt {attempt + 1} failed: {e}")
+                        
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                        else:
+                            logger.error("All Gemini attempts failed")
+                            raise e
                 
                 # Log the raw response for debugging
                 logger.info(f"Raw Gemini response (first 500 chars): {ai_response.text[:500]}")
                 
-                # Parse JSON output with better error handling
+                # Parse JSON output with robust error handling for longer videos
                 try:
-                    # Try to clean up the response text
+                    # Clean up the response text
                     response_text = ai_response.text.strip()
                     
                     # Remove markdown code blocks if present
@@ -514,30 +543,74 @@ def analyze_file():
                     elif response_text.startswith('```'):
                         response_text = response_text.replace('```', '').strip()
                     
+                    # Try to find JSON content if wrapped in other text
+                    if not response_text.startswith('{'):
+                        # Look for JSON object in the response
+                        import re
+                        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if json_match:
+                            response_text = json_match.group(0)
+                    
                     result = json.loads(response_text)
-                    logger.info("Real AI analysis successful!")
-                    return jsonify(result), 200
                     
-                except json.JSONDecodeError as e:
-                    logger.warning(f"JSON parsing failed: {e}")
-                    logger.warning(f"Response text: {ai_response.text[:200]}...")
+                    # Validate and fix structure for longer videos
+                    if not isinstance(result, dict):
+                        raise ValueError("Response is not a valid JSON object")
                     
-                    # Try to create a structured response from the raw text
+                    # Ensure required fields exist
+                    if 'file_info' not in result:
+                        result['file_info'] = {}
+                    
+                    result['file_info']['filename'] = uploaded_file.filename
+                    result['file_info']['analysis_type'] = "VERTA AI Analysis - Real Gemini Processing"
+                    result['file_info']['processed_at'] = datetime.now().isoformat()
+                    result['file_info']['status'] = "completed"
+                    
+                    # Ensure segments exist and are properly formatted
+                    if 'segments' not in result or not isinstance(result['segments'], list):
+                        result['segments'] = []
+                    
+                    logger.info("✅ Real AI analysis successful for longer video!")
+                    response = jsonify(result)
+                    return add_cors_headers(response), 200
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"JSON parsing failed for longer video: {e}")
+                    logger.warning(f"Response text (first 500 chars): {ai_response.text[:500]}...")
+                    
+                    # Create fallback with partial AI content for longer videos
                     result = create_sample_analysis(uploaded_file.filename)
-                    result["ai_raw_response"] = ai_response.text[:1000]  # Include first 1000 chars
-                    result["note"] = "AI analysis completed but returned non-JSON format"
-                    return jsonify(result), 200
+                    result["ai_raw_response"] = ai_response.text[:2000]  # Include more content
+                    result["note"] = f"AI analysis completed but JSON parsing failed: {str(e)}"
+                    result["file_info"]["analysis_type"] = "VERTA AI Analysis - Partial Processing"
+                    
+                    response = jsonify(result)
+                    return add_cors_headers(response), 200
                     
                 except Exception as e:
-                    logger.warning(f"Unexpected parsing error: {e}")
+                    logger.warning(f"Unexpected parsing error for longer video: {e}")
                     result = create_sample_analysis(uploaded_file.filename)
-                    return jsonify(result), 200
+                    result["note"] = f"Processing error: {str(e)}"
+                    response = jsonify(result)
+                    return add_cors_headers(response), 200
                     
             except Exception as e:
                 logger.error(f"Gemini analysis error: {str(e)}")
-                logger.info("AI analysis failed, using sample analysis")
-                result = create_sample_analysis(uploaded_file.filename)
-                return jsonify(result), 200
+                
+                # Check if it's a 500 error (API overload) vs other errors
+                if "500" in str(e) or "internal error" in str(e).lower():
+                    logger.info("Gemini API overloaded (500 error) - creating enhanced fallback analysis")
+                    result = create_sample_analysis(uploaded_file.filename)
+                    result["note"] = f"Gemini API temporarily overloaded (500 error). Using enhanced sample analysis. Please try again in a few minutes for real AI processing."
+                    result["file_info"]["analysis_type"] = "VERTA AI Analysis - API Overload Fallback"
+                else:
+                    logger.info("AI analysis failed with other error, using sample analysis")
+                    result = create_sample_analysis(uploaded_file.filename)
+                    result["note"] = f"AI processing failed: {str(e)}. Using sample analysis."
+                    result["file_info"]["analysis_type"] = "VERTA AI Analysis - Processing Error Fallback"
+                
+                response = jsonify(result)
+                return add_cors_headers(response), 200
         else:
             logger.info("No API key found, using sample analysis")
             result = create_sample_analysis(uploaded_file.filename)
