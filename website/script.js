@@ -229,10 +229,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Check file size (200MB limit for longer videos)
-        const maxSize = 200 * 1024 * 1024;
+        // Check file size (10MB limit to prevent API overload)
+        const maxSize = 10 * 1024 * 1024;
         if (file.size > maxSize) {
-            showNotification('File too large. Please select a file under 200MB', 'error');
+            showNotification('File too large. Please select a file under 10MB', 'error');
             return;
         }
         

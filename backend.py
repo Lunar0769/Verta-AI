@@ -36,7 +36,7 @@ CORS(app, resources={
 })
 
 # Configuration
-MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB for longer videos
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit to prevent API overload
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'mp4', 'mov', 'avi', 'webm'}
 UPLOAD_FOLDER = '/tmp/uploads'
 
